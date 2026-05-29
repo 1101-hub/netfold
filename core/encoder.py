@@ -3,7 +3,7 @@ NetFold Cube Encoder
 =====================
 Encodes a unit cube as a NetFold.
 
-Net layout (cross, like your drawing):
+Net layout (cross):
          [top]
   [left][front][right][back]
         [bottom]
@@ -63,26 +63,26 @@ def build_cube_net() -> NetFold:
             dihedral_angle=FOLD_180, fold_direction=1
         ))
 
-    def fold(fA_tri, fA_local, fB_tri, fB_local):
+    def fold(fA_tri, fA_local, fB_tri, fB_local, direction=-1):
         fold_edges.append(FoldEdge(
             tri_a=fA_tri.id, tri_b=fB_tri.id,
             local_a=fA_local, local_b=fB_local,
-            dihedral_angle=FOLD_90, fold_direction=-1
+            dihedral_angle=FOLD_90, fold_direction=direction
         ))
 
-    fold(faces['front']['B'], (1,2), faces['top']['A'],    (0,1))
-    fold(faces['front']['A'], (0,1), faces['bottom']['B'], (1,2))
-    fold(faces['front']['B'], (0,2), faces['left']['A'],   (1,2))
+    fold(faces['front']['B'], (1,2), faces['top']['A'],    (1,0))
+    fold(faces['front']['A'], (0,1), faces['bottom']['A'], (0,1), direction=+1)
+    fold(faces['front']['B'], (0,2), faces['left']['A'],   (1,2), direction=+1)
     fold(faces['front']['A'], (1,2), faces['right']['B'],  (0,2))
-    fold(faces['bottom']['A'], (0,1), faces['back']['B'],  (1,2))
+    fold(faces['bottom']['B'], (1,2), faces['back']['A'],  (0,1))
 
-    # Correct stitch edges — computed from ground truth auto-detection
+    # Correct stitch edges — with updated back face stitch
     stitch_edges = [
         StitchEdge(0,  11, (1,2), (1,2), FOLD_90),
         StitchEdge(1,  7,  (1,2), (1,2), FOLD_90),
         StitchEdge(1,  9,  (2,0), (1,2), FOLD_90),
         StitchEdge(4,  10, (1,2), (0,1), FOLD_90),
-        StitchEdge(5,  6,  (1,2), (0,1), FOLD_90),
+        StitchEdge(9,  6,  (0,2), (1,2), FOLD_90),  # E-H edge
         StitchEdge(5,  8,  (2,0), (0,1), FOLD_90),
         StitchEdge(7,  10, (2,0), (1,2), FOLD_90),
     ]
@@ -96,7 +96,7 @@ def build_cube_net() -> NetFold:
     root = RootAnchor(
         triangle_id=root_id,
         position_3d=root_3d,
-        normal_3d=np.array([0.0, 0.0, -1.0])
+        normal_3d=np.array([0.0, 0.0, 1.0])
     )
 
     nf = NetFold(
@@ -111,13 +111,6 @@ def build_cube_net() -> NetFold:
 
 
 def get_ground_truth_positions(nf: NetFold) -> dict:
-    """
-    Hardcoded correct 3D positions for every triangle.
-
-    Cube vertices:
-      A=(0,0,0) B=(1,0,0) C=(1,1,0) D=(0,1,0)
-      E=(0,0,1) F=(1,0,1) G=(1,1,1) H=(0,1,1)
-    """
     A = np.array([0.,0.,0.])
     B = np.array([1.,0.,0.])
     C = np.array([1.,1.,0.])

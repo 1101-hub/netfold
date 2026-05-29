@@ -94,3 +94,17 @@ def main():
 
 if __name__ == '__main__':
     main()
+    import matplotlib.pyplot as plt
+    from core.auto_encoder import encode_mesh
+    from core.reconstruct import reconstruct
+    from core.visualise import plot_2d_net, plot_3d_reconstruction
+
+    obj = "test/icosahedron.obj"  # swap to any mesh
+
+    nf = encode_mesh(obj)
+    placed = reconstruct(nf)
+
+    plot_2d_net(nf)
+    plot_3d_reconstruction(placed, nf)
+
+    plt.show()
