@@ -31,13 +31,24 @@ def _project(v: np.ndarray, axis: np.ndarray) -> Tuple[float, float]:
     return float(dots.min()), float(dots.max())
 
 
-def sat_intersect(va: np.ndarray, vb: np.ndarray, eps: float = _EPS) -> bool:
+def sat_intersect(
+    va: np.ndarray,
+    vb: np.ndarray,
+    eps: float = _EPS,
+    axes_a: np.ndarray | None = None,
+    axes_b: np.ndarray | None = None,
+) -> bool:
     """
     True only if triangles overlap with positive area.
     Edge-touching (min overlap depth ≈ 0) returns False.
     """
+    if axes_a is None:
+        axes_a = _edge_normals(va)
+    if axes_b is None:
+        axes_b = _edge_normals(vb)
+
     min_overlap = np.inf
-    for axis in np.vstack([_edge_normals(va), _edge_normals(vb)]):
+    for axis in np.vstack([axes_a, axes_b]):
         lo_a, hi_a = _project(va, axis)
         lo_b, hi_b = _project(vb, axis)
         depth = min(hi_a, hi_b) - max(lo_a, lo_b)
@@ -80,21 +91,43 @@ def find_overlaps(nf: NetFold, eps: float = _EPS) -> OverlapResult:
 
     Returns OverlapResult with triangle ID pairs that overlap.
     """
-    # fold-adjacent pairs — skip these
-    adjacent: set[frozenset] = {
-        frozenset((fe.tri_a, fe.tri_b)) for fe in nf.fold_edges
+    # fold-adjacent pairs — skip these. Using sorted tuple is much faster than frozenset
+    adjacent = {
+        (min(fe.tri_a, fe.tri_b), max(fe.tri_a, fe.tri_b)) for fe in nf.fold_edges
     }
 
     ids   = [t.id for t in nf.triangles]
     verts = [t.vertices.astype(float) for t in nf.triangles]
     n     = len(ids)
 
+    # Precompute edge normals
+    normals = [_edge_normals(v) for v in verts]
+
+    # Precompute axis-aligned bounding boxes (AABBs) for broad-phase collision filtering
+    aabbs = []
+    for v in verts:
+        aabbs.append((v[:, 0].min(), v[:, 0].max(), v[:, 1].min(), v[:, 1].max()))
+
     pairs = []
     for i in range(n):
+        id_i = ids[i]
+        vert_i = verts[i]
+        norm_i = normals[i]
+        min_x_i, max_x_i, min_y_i, max_y_i = aabbs[i]
+
         for j in range(i + 1, n):
-            if frozenset((ids[i], ids[j])) in adjacent:
+            id_j = ids[j]
+            if (min(id_i, id_j), max(id_i, id_j)) in adjacent:
                 continue
-            if sat_intersect(verts[i], verts[j], eps):
-                pairs.append((ids[i], ids[j]))
+
+            # Broad phase: Axis-Aligned Bounding Box (AABB) overlap check
+            min_x_j, max_x_j, min_y_j, max_y_j = aabbs[j]
+            if (max_x_i < min_x_j - eps or max_x_j < min_x_i - eps or
+                max_y_i < min_y_j - eps or max_y_j < min_y_i - eps):
+                continue
+
+            # Narrow phase: Separating Axis Theorem (SAT)
+            if sat_intersect(vert_i, verts[j], eps, norm_i, normals[j]):
+                pairs.append((id_i, id_j))
 
     return OverlapResult(pairs=pairs)

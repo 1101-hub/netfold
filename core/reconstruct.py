@@ -8,7 +8,28 @@ import numpy as np
 from collections import deque
 from .structure import NetFold
 
-def reconstruct(nf: NetFold) -> dict:
+def reconstruct(
+    nf: NetFold,
+    auto_refine: bool = False,
+    refine_iterations: int = 200,
+    refine_damping: float = 0.4,
+    stitch_tol: float = 1e-6,
+) -> dict:
+    """
+    Reconstruct 3D geometry from a NetFold encoding.
+
+    Parameters:
+        nf                : the NetFold to reconstruct
+        auto_refine       : if True, automatically run refine_closure when
+                            stitch errors are detected. Useful for complex meshes
+                            (deep BFS chains, nosecones, etc.)
+        refine_iterations : max iterations for spring relaxation (if auto_refine)
+        refine_damping    : damping factor for spring relaxation (if auto_refine)
+        stitch_tol        : error threshold below which stitches are considered OK
+
+    Returns:
+        dict mapping triangle_id → (3,3) float64 array of 3D vertex positions
+    """
     placed = {}
     root_id = nf.root.triangle_id
     placed[root_id] = nf.root.position_3d.copy()
@@ -95,7 +116,15 @@ def reconstruct(nf: NetFold) -> dict:
             placed[neighbour_id] = neighbour_3d
             queue.append(neighbour_id)
 
+    if auto_refine:
+        # Check if refinement is needed
+        results = verify_closure(nf, placed, tol=stitch_tol)
+        if any(r['status'] == 'MISMATCH' for r in results):
+            placed = refine_closure(nf, placed,
+                                    iterations=refine_iterations,
+                                    damping=refine_damping)
     return placed
+
 
 def verify_closure(nf: NetFold, placed: dict, tol: float = 1e-6) -> list:
     results = []
@@ -127,3 +156,94 @@ def verify_closure(nf: NetFold, placed: dict, tol: float = 1e-6) -> list:
         })
 
     return results
+
+
+def refine_closure(
+    nf: NetFold,
+    placed: dict,
+    iterations: int = 50,
+    damping: float = 0.3,
+) -> dict:
+    """
+    Spring-mass relaxation to reduce stitch-edge closure errors.
+
+    For each stitch edge, computes the midpoint of mismatched vertex
+    pairs and nudges both endpoints toward it. The correction is
+    applied with damping to avoid oscillation.
+
+    This is useful for large meshes where cumulative float rounding
+    in the BFS reconstruction causes leaf triangles to drift.
+
+    Parameters:
+        nf         : the NetFold encoding
+        placed     : dict from reconstruct() — triangle_id → (3,3) positions
+        iterations : number of relaxation passes
+        damping    : correction strength per iteration (0 = none, 1 = full snap)
+
+    Returns:
+        A new placed dict with reduced stitch errors.
+    """
+    import copy
+    placed = copy.deepcopy(placed)
+
+    for _it in range(iterations):
+        # Accumulate corrections per triangle vertex
+        corrections = {}  # (tri_id, vert_idx) → list of correction vectors
+        for se in nf.stitch_edges:
+            if se.tri_a not in placed or se.tri_b not in placed:
+                continue
+
+            verts_a = placed[se.tri_a]
+            verts_b = placed[se.tri_b]
+
+            # Determine which orientation gives less error
+            err_fwd = (np.linalg.norm(verts_a[se.local_a[0]] - verts_b[se.local_b[0]]) +
+                       np.linalg.norm(verts_a[se.local_a[1]] - verts_b[se.local_b[1]]))
+            err_rev = (np.linalg.norm(verts_a[se.local_a[0]] - verts_b[se.local_b[1]]) +
+                       np.linalg.norm(verts_a[se.local_a[1]] - verts_b[se.local_b[0]]))
+
+            if err_fwd <= err_rev:
+                pairs = [
+                    ((se.tri_a, se.local_a[0]), (se.tri_b, se.local_b[0])),
+                    ((se.tri_a, se.local_a[1]), (se.tri_b, se.local_b[1])),
+                ]
+            else:
+                pairs = [
+                    ((se.tri_a, se.local_a[0]), (se.tri_b, se.local_b[1])),
+                    ((se.tri_a, se.local_a[1]), (se.tri_b, se.local_b[0])),
+                ]
+
+            for key_a, key_b in pairs:
+                pa = placed[key_a[0]][key_a[1]]
+                pb = placed[key_b[0]][key_b[1]]
+                mid = (pa + pb) / 2.0
+
+                corrections.setdefault(key_a, []).append(mid - pa)
+                corrections.setdefault(key_b, []).append(mid - pb)
+
+        if not corrections:
+            break
+
+        # Apply averaged corrections with damping
+        for (tri_id, vert_idx), corr_list in corrections.items():
+            avg_corr = np.mean(corr_list, axis=0)
+            placed[tri_id][vert_idx] += damping * avg_corr
+
+    return placed
+
+
+def denormalize(nf: NetFold, placed: dict) -> dict:
+    """
+    Recover original-scale coordinates from a normalised NetFold.
+
+    If the NetFold was encoded with normalize=True, this applies:
+        original = reconstructed * scale + translate
+
+    If the NetFold was not normalised, returns placed unchanged.
+    """
+    if nf.scale is None:
+        return placed
+    return {
+        tid: verts * nf.scale + nf.translate
+        for tid, verts in placed.items()
+    }

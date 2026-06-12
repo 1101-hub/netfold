@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+*$py.class
+demo_output/
+output/
+*.netfold
+*.nfb
+.venv/

@@ -9,7 +9,6 @@ import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 import numpy as np
-import trimesh
 
 from core.auto_encoder import encode_mesh
 from core.overlap import sat_intersect, find_overlaps
@@ -43,32 +42,34 @@ def test_sat_identical():
 TEST_DIR = os.path.dirname(__file__)
 
 def _run(name, path):
-    mesh = trimesh.load(path, force='mesh')
-    nf   = encode_mesh(mesh, name=name)
+    nf   = encode_mesh(path, name=name)
     res  = find_overlaps(nf)
-    res.report()
     return res
 
-def test_cube():
+def test_cube_overlap():
     res = _run("cube", os.path.join(TEST_DIR, "cube.obj"))
-    print(f"  cube — {len(res.pairs)} overlapping pairs")
     # not asserting clean: BFS tree may produce overlaps on cube, that's expected
 
-def test_icosahedron():
+def test_icosahedron_overlap():
     res = _run("icosahedron", os.path.join(TEST_DIR, "icosahedron.obj"))
-    print(f"  icosahedron — {res.count} overlapping pairs")
 
-def test_geodesic_n1():
-    res = _run("geodesic_n1", os.path.join(TEST_DIR, "geodesic_n1.obj"))
-    print(f"  geodesic n1 — {res.count} overlapping pairs")
+def test_geodesic_n1_overlap():
+    path = os.path.join(TEST_DIR, "geodesic_n1.obj")
+    if not os.path.exists(path):
+        import pytest; pytest.skip("geodesic_n1.obj not found")
+    _run("geodesic_n1", path)
 
-def test_geodesic_n2():
-    res = _run("geodesic_n2", os.path.join(TEST_DIR, "geodesic_n2.obj"))
-    print(f"  geodesic n2 — {res.count} overlapping pairs")
+def test_geodesic_n2_overlap():
+    path = os.path.join(TEST_DIR, "geodesic_n2.obj")
+    if not os.path.exists(path):
+        import pytest; pytest.skip("geodesic_n2.obj not found")
+    _run("geodesic_n2", path)
 
-def test_geodesic_n3():
-    res = _run("geodesic_n3", os.path.join(TEST_DIR, "geodesic_n3.obj"))
-    print(f"  geodesic n3 — {res.count} overlapping pairs")
+def test_geodesic_n3_overlap():
+    path = os.path.join(TEST_DIR, "geodesic_n3.obj")
+    if not os.path.exists(path):
+        import pytest; pytest.skip("geodesic_n3.obj not found")
+    _run("geodesic_n3", path)
 
 
 if __name__ == "__main__":
@@ -79,8 +80,9 @@ if __name__ == "__main__":
     test_sat_identical();        print("  identical:        PASS")
 
     print("\n── Mesh overlap checks ──")
-    test_cube()
-    test_icosahedron()
-    test_geodesic_n1()
-    test_geodesic_n2()
-    test_geodesic_n3()
+    test_cube_overlap()
+    test_icosahedron_overlap()
+    test_geodesic_n1_overlap()
+    test_geodesic_n2_overlap()
+    test_geodesic_n3_overlap()
+    print("\nAll overlap tests passed.")
